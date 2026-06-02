@@ -188,6 +188,17 @@ function App() {
   const onPick = useCallback((id) => { setSelected(id); setSheetOpen(true); }, []);
   const { mapRef, markersRef } = useBicingMap(onPick);
 
+  // --- mobile bottom-sheet swipe (tap still works via the button's onClick) ---
+  const dragRef = useRef(null);
+  const onSheetTouchStart = (e) => { dragRef.current = e.touches[0].clientY; };
+  const onSheetTouchEnd = (e) => {
+    if (dragRef.current == null) return;
+    const dy = e.changedTouches[0].clientY - dragRef.current;
+    if (dy < -40) setSheetOpen(true);        // swipe up → open
+    else if (dy > 40) setSheetOpen(false);   // swipe down → close
+    dragRef.current = null;
+  };
+
   // recolor markers whenever query changes (or a day's data finishes loading)
   useEffect(() => {
     const markers = markersRef.current;
@@ -238,7 +249,7 @@ function App() {
 
       {/* panel: sidebar on desktop, bottom sheet on mobile */}
       <div className={'panel' + (sheetOpen ? ' open' : '')}>
-        <div className="panel-head">
+        <div className="panel-head" onTouchStart={onSheetTouchStart} onTouchEnd={onSheetTouchEnd}>
           <div className="sheet-grip" />
           <button className="sheet-handle" onClick={() => setSheetOpen((v) => !v)}>
             <div>
