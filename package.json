@@ -1,0 +1,12 @@
+{
+  "name": "bicing-dashboard",
+  "private": true,
+  "description": "Build step for the Bicing availability map: compiles app.jsx to app.js.",
+  "scripts": {
+    "build": "esbuild app.jsx --outfile=app.js --target=es2019 --minify --sourcemap --legal-comments=none",
+    "watch": "npm run build -- --watch"
+  },
+  "devDependencies": {
+    "esbuild": "0.24.0"
+  }
+}

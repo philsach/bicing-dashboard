@@ -6,31 +6,36 @@
  *
  * ── TWO STATIC DATASETS, NO BACKEND ─────────────────────────────────────────
  *
- *  FILE 1 — station metadata   data/stations.json   (real, 546 stations)
+ *  FILE 1 — station metadata   data/stations.json   (546 stations)
  *    [{ "station_id": 1, "name": "...", "lat": 41.39, "lon": 2.18,
  *       "capacity": 46, "altitude": 16 }, ...]
  *
- *  FILE 2..n — aggregated availability, ONE FILE PER WEEKDAY so the browser
+ *  FILE 2..8 — aggregated availability, ONE FILE PER WEEKDAY so the browser
  *  only loads the day in view:
  *      data/availability_mon.json … availability_sun.json
- *    Each is a flat array of rows straight from pandas:
- *      { "station_id": 1, "time_window": "08:15", "n": 39,
- *        "t1": { "any": .., "ebike": .., "mechanical": .., "dock": .. },
- *        "t2": {...}, "t3": {...}, "t4": {...}, "t5": {...} }
  *
- *    • time_window = "HH:MM", 15-min bins  → 00:00 … 23:45  (96 bins)
- *    • n           = sample size (number of observed days behind the estimate)
- *    • tK          = threshold K (1..5):  P(at least K …)
+ *    Compact format (what's in the repo; made by scripts/compact_data.py):
+ *      { "format": 2, "fields": ["any","ebike","mechanical","dock"],
+ *        "thresholds": 5,
+ *        "rows": [[station_id, interval, n,
+ *                  t1.any, t1.ebike, t1.mechanical, t1.dock, … t5.dock], …] }
+ *      probabilities as whole percentages 0–100, interval = 15-min bin 0..95.
+ *
+ *    The original pandas export (flat array of row objects) still loads too:
+ *      { "station_id": 1, "time_window": "08:15", "n": 39,
+ *        "t1": { "any": .., "ebike": .., "mechanical": .., "dock": .. }, … }
+ *
+ *    • n  = sample size (number of observed days behind the estimate)
+ *    • tK = threshold K (1..5):  P(at least K …)
  *        - any        P(≥K bikes of any kind)        ← pickup, "All"
  *        - ebike      P(≥K e-bikes)                  ← pickup, "E-bike"
  *        - mechanical P(≥K classic/mechanical bikes) ← pickup, "Classic"
  *        - dock       P(≥K free dock slots)          ← drop-off
  *
  *  Rows for missing (station, window) combinations may be absent — getProb()
- *  returns null for those and the UI greys the station out.
- *
- *  Only Monday is wired with real data today; the other weekday files load on
- *  demand and automatically fall back to Monday until you add them.
+ *  returns null for those and the UI greys the station out. A weekday whose
+ *  file is missing stays empty (no fallback to another day, so missing data
+ *  can never masquerade as real data).
  * ========================================================================== */
 (function () {
   'use strict';
@@ -40,6 +45,8 @@
   const INTERVALS = (24 * 60) / INTERVAL_MIN;    // 96 bins
   const DOW = 7;                                 // Mon..Sun
   const N_MIN = 1, N_MAX = 5;                    // threshold slider range (t1..t5)
+  const LOW_N = 10;                              // fewer observed days than this = "limited data"
+  const FIELDS = ['any', 'ebike', 'mechanical', 'dock'];
 
   const DAY_FILES = [
     'data/availability_mon.json', 'data/availability_tue.json',
@@ -112,7 +119,7 @@
    *  STORE[dow] = { [stationId]: { [intervalIdx]: row } }
    * ======================================================================== */
   const STORE = {};         // dow -> index
-  const DAY_STATE = {};     // dow -> 'loading' | 'ready' | 'fallback' | 'error'
+  const DAY_STATE = {};     // dow -> 'loading' | 'ready' | 'missing'
   const dayPromises = {};   // dow -> Promise (dedupe in-flight loads)
 
   function twToInterval(tw) {
@@ -121,12 +128,29 @@
     return (parseInt(m[1], 10) * 60 + parseInt(m[2], 10)) / INTERVAL_MIN;
   }
 
-  function indexRows(rows) {
+  // Every row is stored as a compact array:
+  //   [station_id, interval, n, t1.any, t1.ebike, t1.mechanical, t1.dock, … t5.dock]
+  // with probabilities as percentages (0–100).
+  function fromObjectRow(r) {
+    const out = [r.station_id, twToInterval(r.time_window), r.n];
+    for (let k = 1; k <= N_MAX; k++) {
+      const t = r['t' + k] || {};
+      for (const f of FIELDS) out.push(typeof t[f] === 'number' ? Math.round(t[f] * 100) : null);
+    }
+    return out;
+  }
+
+  function indexRows(data) {
+    const compact = !Array.isArray(data) && data && data.format === 2;
+    if (compact && (data.thresholds !== N_MAX || String(data.fields) !== String(FIELDS))) {
+      throw new Error('unexpected availability file layout');
+    }
+    const rows = compact ? data.rows : (data || []).map(fromObjectRow);
     const idx = {};
     for (const r of rows) {
-      const iv = twToInterval(r.time_window);
-      if (iv < 0 || iv >= INTERVALS) continue;
-      const sid = String(r.station_id);
+      const iv = r[1];
+      if (!(iv >= 0 && iv < INTERVALS)) continue;
+      const sid = String(r[0]);
       (idx[sid] || (idx[sid] = {}))[iv] = r;
     }
     return idx;
@@ -165,21 +189,25 @@
   // mode: 'pickup' => P(≥n bikes of `bike` type) ; 'dropoff' => P(≥n free docks)
   // interval: bin 0..95.  dow: 0=Mon..6=Sun.  n: 1..5.
   // Returns a probability in [0,1], or null when there's no data for that cell.
-  function getProb(st, mode, dow, interval, bike, n) {
+  function getRow(st, dow, interval) {
     const idx = STORE[dow];
-    if (!idx) return null;
-    const byIv = idx[st.id];
-    if (!byIv) return null;
-    const row = byIv[interval];
-    if (!row) return null;
-    const t = row['t' + n];
-    if (!t) return null;
-    let v;
-    if (mode === 'dropoff') v = t.dock;
-    else if (bike === 'ebike') v = t.ebike;
-    else if (bike === 'classic') v = t.mechanical;
-    else v = t.any;
-    return typeof v === 'number' ? v : null;
+    const byIv = idx && idx[st.id];
+    return (byIv && byIv[interval]) || null;
+  }
+
+  function getProb(st, mode, dow, interval, bike, n) {
+    const row = getRow(st, dow, interval);
+    if (!row || !(n >= N_MIN && n <= N_MAX)) return null;
+    const field = mode === 'dropoff' ? 3 : bike === 'ebike' ? 1 : bike === 'classic' ? 2 : 0;
+    const v = row[3 + (n - 1) * FIELDS.length + field];
+    return typeof v === 'number' ? v / 100 : null;
+  }
+
+  // Number of observed days behind a (station, weekday, 15-min window) cell,
+  // or null when there's no data for it.
+  function getSample(st, dow, interval) {
+    const row = getRow(st, dow, interval);
+    return row && typeof row[2] === 'number' ? row[2] : null;
   }
 
   // 24 hourly values for the detail chart = mean of the four 15-min bins in each
@@ -199,9 +227,9 @@
 
   window.BICING = {
     STATIONS, CENTER,
-    INTERVAL_MIN, INTERVALS, DOW, N_MIN, N_MAX,
+    INTERVAL_MIN, INTERVALS, DOW, N_MIN, N_MAX, LOW_N,
     rampColor, loadStations,
     loadAvailability, isDayReady, dayState,
-    getProb, hourlySeries,
+    getProb, getSample, hourlySeries,
   };
 })();
