@@ -71,6 +71,8 @@ function Detail({ station, mode, day, bike, n, interval, onClose }) {
     );
   }
   const p = B.getProb(station, mode, day, interval, bike, n);
+  const sample = B.getSample(station, day, interval);
+  const lowData = sample != null && sample < B.LOW_N;
   const lbl = `chance of \u2265${n} ${noun(mode)}`;
   const bikeSuffix = mode === 'pickup' && bike !== 'all' ? ` (${bike === 'ebike' ? 'e-bikes' : 'classic'})` : '';
   return (
@@ -87,6 +89,12 @@ function Detail({ station, mode, day, bike, n, interval, onClose }) {
         )}
         <div className="biglbl">{p == null ? 'no data for this time' : <>{lbl}{bikeSuffix}</>}</div>
       </div>
+      {p != null && sample != null && (
+        <div className={'dsample tnum' + (lowData ? ' low' : '')}>
+          Based on {sample} {DAYS_LONG[day]}{sample === 1 ? '' : 's'} of data
+          {lowData && <> &middot; limited data, treat as a rough guide</>}
+        </div>
+      )}
       <div className="chart-wrap">
         <div className="chart-cap">
           <span>Across {DAYS[day]} &middot; by hour</span>
@@ -105,6 +113,7 @@ function Legend({ mode, n }) {
       <div className="lt">Chance of <b>{'\u2265'}{n} {noun(mode)}</b></div>
       <div className="bar" style={{ background: rampCss(mode) }} />
       <div className="lr"><span>0% &mdash; none likely</span><span>100%</span></div>
+      <div className="lnote">Faded dots: fewer than {B.LOW_N} days of data</div>
     </div>
   );
 }
@@ -122,7 +131,7 @@ function useBicingMap(onPick) {
       attributionControl: true, preferCanvas: true, zoomSnap: 0.5,
     });
     map.zoomControl.setPosition('topright');
-    L.control.attribution({ prefix: false }).addTo(map);
+    map.attributionControl.setPrefix(false);
 
     let fellBack = false;
     const keySuffix = STADIA_API_KEY ? ('?api_key=' + STADIA_API_KEY) : '';
@@ -204,9 +213,11 @@ function App() {
     B.STATIONS.forEach((st) => {
       const m = markers[st.id]; if (!m) return;
       const p = B.getProb(st, mode, day, interval, bike, n);
+      const sample = B.getSample(st, day, interval);
+      const lowData = p != null && sample != null && sample < B.LOW_N;
       m.setStyle({
         fillColor: p == null ? '#39414f' : B.rampColor(p, mode),
-        fillOpacity: p == null ? 0.45 : 0.9,
+        fillOpacity: p == null ? 0.45 : lowData ? 0.32 : 0.9,
       });
     });
   }, [mode, day, interval, bike, n, loadTick]);

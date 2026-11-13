@@ -112,6 +112,7 @@
   .legend .lt b { color: var(--ink); }
   .legend .bar { height: 9px; border-radius: 999px; }
   .legend .lr { display: flex; justify-content: space-between; margin-top: 6px; font-size: 10.5px; color: var(--ink-3); }
+  .legend .lnote { margin-top: 7px; font-size: 10.5px; color: var(--ink-3); line-height: 1.3; }
 
   /* station detail */
   .detail { margin-top: 4px; border-top: 1px solid var(--line); padding-top: 18px; }
@@ -122,6 +123,8 @@
   .detail .big { display: flex; align-items: baseline; gap: 10px; }
   .detail .bignum { font-size: 54px; font-weight: 800; letter-spacing: -.03em; line-height: 1; }
   .detail .biglbl { font-size: 12.5px; color: var(--ink-2); max-width: 130px; line-height: 1.35; }
+  .detail .dsample { margin-top: 10px; font-size: 11.5px; color: var(--ink-3); line-height: 1.4; }
+  .detail .dsample.low { color: #e2aa2d; }
   .chart-wrap { margin-top: 16px; }
   .chart-cap { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-3); margin-bottom: 7px; }
   .dclose { float: right; appearance: none; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--ink-2); width: 26px; height: 26px; border-radius: 7px; cursor: pointer; font-size: 14px; line-height: 1; }
@@ -150,6 +153,7 @@
     .panel-body { padding-top: 14px; }
     .legend { bottom: calc(var(--peek, 76px) + 12px); right: 12px; width: 188px; transition: bottom .32s cubic-bezier(.4,0,.2,1); }
     .panel.open ~ .legend { bottom: 12px; }
+    .legend .lnote { display: none; }
     .mode-toggle { top: 14px; }
   }
   @media (max-width: 420px) {
@@ -161,10 +165,10 @@
 <body>
   <div id="root"></div>
 
-  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" crossorigin="anonymous"></script>
   <script src="bicing.js"></script>
-  <script type="text/babel" src="app.jsx"></script>
+  <!-- app.js is compiled from app.jsx: run `npm run build` after editing app.jsx -->
+  <script src="app.js"></script>
 </body>
 </html>
