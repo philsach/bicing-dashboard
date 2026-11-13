@@ -3,11 +3,14 @@ const { useState, useEffect, useRef, useMemo, useCallback, useReducer } = React;
 const B = window.BICING;
 
 /* ----------------------------------------------------------------------------
- * STADIA MAPS API KEY
- * Paste your free key between the quotes below to load the real Stadia dark
- * basemap. Get it at https://client.stadiamaps.com → Properties →
- * Authentication Configuration → "Add API Key". Leave blank to use the
- * free CARTO dark fallback (no account needed).
+ * BASEMAP: STADIA MAPS (dark)
+ * Uses Stadia domain authentication, so no key is needed in this (public)
+ * code: in https://client.stadiamaps.com → Properties → Authentication
+ * Configuration, add the site's domain (e.g. philsach.github.io).
+ * localhost works without any setup.
+ * Optional: paste an API key below instead (it would be visible publicly).
+ * If Stadia tiles fail to load, the map falls back to Esri's dark gray
+ * basemap (no account needed).
  * -------------------------------------------------------------------------- */
 const STADIA_API_KEY = '';
 
@@ -127,19 +130,15 @@ function useBicingMap(onPick) {
       'https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png' + keySuffix,
       { maxZoom: 20, attribution: '&copy; Stadia Maps &copy; OpenMapTiles &copy; OpenStreetMap contributors' }
     );
-    function useCartoFallback() {
+    // Fallback if Stadia refuses the tiles (e.g. domain not registered yet).
+    function useEsriFallback() {
       if (fellBack) return; fellBack = true;
       map.removeLayer(stadia);
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-        { maxZoom: 20, subdomains: 'abcd', attribution: '&copy; CARTO &copy; OpenStreetMap contributors' }).addTo(map);
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+        { maxZoom: 20, maxNativeZoom: 16, attribution: 'Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors' }).addTo(map);
     }
-    // If no key is configured, go straight to CARTO so the console stays clean.
-    if (!STADIA_API_KEY) {
-      useCartoFallback();
-    } else {
-      stadia.on('tileerror', useCartoFallback);
-      stadia.addTo(map);
-    }
+    stadia.on('tileerror', useEsriFallback);
+    stadia.addTo(map);
 
     B.STATIONS.forEach((st) => {
       const m = L.circleMarker([st.lat, st.lng], {
