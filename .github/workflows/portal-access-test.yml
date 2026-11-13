@@ -1,0 +1,57 @@
+# One-off diagnostic: can GitHub's runners download Bicing data from
+# Barcelona's open data portal? (From Claude's cloud container, everything
+# outside /data/api/ returns 403.) Runs on push to this branch or manually.
+# Safe to delete once we know the answer.
+name: Portal access test
+
+on:
+  push:
+    branches: [test/portal-access]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Catalogue API (package_show)
+        run: |
+          curl -sS -m 60 -o pkg.json -w 'package_show: HTTP %{http_code}, %{size_download} bytes\n' \
+            'https://opendata-ajuntament.barcelona.cat/data/api/3/action/package_show?id=estat-estacions-bicing'
+          python3 - <<'EOF'
+          import json
+          res = json.load(open('pkg.json'))['result']['resources']
+          months = sorted(r['name'] for r in res if r['name'][:4].isdigit())
+          print(f'{len(months)} monthly files, newest: {months[-1]}')
+          newest = [r for r in res if r['name'] == months[-1]][0]
+          open('url.txt', 'w').write(newest['url'])
+          print('download URL:', newest['url'])
+          EOF
+
+      - name: Public web page
+        run: |
+          curl -sS -m 60 -o /dev/null -w 'home page: HTTP %{http_code}, %{size_download} bytes\n' \
+            'https://opendata-ajuntament.barcelona.cat/'
+
+      - name: Download newest monthly status file
+        run: |
+          curl -sS -m 600 -L -o month.7z -w 'download: HTTP %{http_code}, %{size_download} bytes\n' "$(cat url.txt)" || true
+          file month.7z
+          if ! file month.7z | grep -qi '7-zip'; then
+            echo '--- response body (first 500 bytes) ---'; head -c 500 month.7z; echo
+            echo '::error::Download did not return a 7z archive'
+            exit 1
+          fi
+
+      - name: Peek inside the archive
+        run: |
+          sudo apt-get install -y -qq p7zip-full >/dev/null
+          7z l month.7z | tail -n 8
+          mkdir out && 7z x -y -oout month.7z >/dev/null
+          for f in out/*; do
+            echo "=== $f ($(du -h "$f" | cut -f1), $(wc -l < "$f") lines)"
+            head -n 4 "$f" | cut -c1-600
+          done
