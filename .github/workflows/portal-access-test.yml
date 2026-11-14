@@ -46,7 +46,22 @@ jobs:
             echo '::error::Secret BCN_OPENDATA_TOKEN is not set'
             exit 1
           fi
-          echo "--- with token in the Authorization header"
+          echo "--- documented method: Python urllib, Authorization + Accept headers"
+          python3 - <<'EOF' || true
+          import os, urllib.request, urllib.error
+          base = open('url.txt').read().strip()
+          for url in (base, base + '/2026_10_Octubre_BicingNou_ESTACIONS.7z'):
+              req = urllib.request.Request(url)
+              req.add_header('Accept', 'application/json')
+              req.add_header('Authorization', os.environ['BCN_OPENDATA_TOKEN'])
+              try:
+                  with urllib.request.urlopen(req, timeout=120) as r:
+                      head = r.read(64)
+                      print(f'{url[-45:]}: HTTP {r.status}, starts with {head[:6]!r}')
+              except urllib.error.HTTPError as e:
+                  print(f'{url[-45:]}: HTTP {e.code}')
+          EOF
+          echo "--- with token in the Authorization header (curl)"
           curl -sS -m 600 -L -H "Authorization: $BCN_OPENDATA_TOKEN" -o month.7z \
             -w 'download: HTTP %{http_code}, %{size_download} bytes\n' "$(cat url.txt)" || true
           file month.7z
