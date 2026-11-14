@@ -61,6 +61,12 @@ jobs:
               except urllib.error.HTTPError as e:
                   print(f'{url[-45:]}: HTTP {e.code}')
           EOF
+          echo "--- honest descriptive User-Agent (no token, then with token)"
+          UA='bicing-dashboard/1.0 (+https://github.com/philsach/bicing-dashboard)'
+          curl -sS -m 120 -A "$UA" -o /dev/null -w 'home page: HTTP %{http_code}\n' 'https://opendata-ajuntament.barcelona.cat/' || true
+          curl -sS -m 120 -A "$UA" -o /dev/null -w 'download: HTTP %{http_code}, %{size_download} bytes\n' "$(cat url.txt)" || true
+          curl -sS -m 120 -A "$UA" -H "Authorization: $BCN_OPENDATA_TOKEN" -o /dev/null \
+            -w 'download + token: HTTP %{http_code}, %{size_download} bytes\n' "$(cat url.txt)" || true
           echo "--- with token in the Authorization header (curl)"
           curl -sS -m 600 -L -H "Authorization: $BCN_OPENDATA_TOKEN" -o month.7z \
             -w 'download: HTTP %{http_code}, %{size_download} bytes\n' "$(cat url.txt)" || true
