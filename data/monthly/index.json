@@ -1,0 +1,13 @@
+{
+  "2026_10": {
+    "days_covered": 26,
+    "first_day": "2026-10-06",
+    "last_day": "2026-10-31",
+    "month": "2026_10",
+    "processed": "2026-11-14",
+    "snapshots": 3975635,
+    "source": "2026_10_Octubre_BicingNou_ESTACIONS.7z",
+    "stations": 544,
+    "version": "c138d26a-c797-4813-a37d-0f1d1b5bab65@2026-11-03T08:00:23.761914"
+  }
+}

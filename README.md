@@ -44,74 +44,133 @@ app.js          compiled from app.jsx by `npm run build` (what the page loads)
 bicing.js       DATA LAYER (code) — the only place that knows the data format
 package.json    build script (esbuild)
 scripts/
-  compact_data.py            converts the pandas export to the compact format
+  bicing_data.py             data pipeline: update / summarize / build
+  requirements.txt           Python packages for the pipeline
+  macos/                     weekly automatic update on a Mac (launchd)
+.github/workflows/
+  data-reminder.yml          weekly check: opens an issue if a new month is missing
 data/
   stations.json              546 stations: id, name, lat/lon, capacity
   availability_mon.json … availability_sun.json
                              one file per weekday, loaded when that day is shown
+  meta.json                  which months the numbers cover (shown in the header)
+  monthly/YYYY_MM.csv.gz     per-month count summaries the weekday files are built from
+  monthly/index.json         which portal file/version each summary came from
 ```
 
 ## Data
 
+Source: [Barcelona Open Data](https://opendata-ajuntament.barcelona.cat/),
+dataset **estat-estacions-bicing** ("New Bicing stations status", CC BY 4.0).
+It is published as one 7z archive per month (about 20 MB), each holding a CSV
+with a snapshot of every station every 5 minutes.
+
 Each weekday file holds, per station and 15-minute window, the probability of
 finding at least 1–5 bikes (any / e-bike / classic) or free docks, plus `n`,
-the number of observed days behind the estimate (typically 39–41). Cells based
-on fewer than 10 days are shown faded on the map, and the station panel says
-how many days each number is based on. The threshold is `LOW_N` in
-`bicing.js`.
+the number of days behind the estimate. Cells based on fewer than 4 days are
+shown faded on the map (`LOW_N` in `bicing.js`), and the station panel says
+how many days each number is based on.
 
-If a weekday file is missing, that day's stations render grey and a note says
-which file to add (no fallback to another day, so a missing file can never
-masquerade as real data). The weekday → file mapping lives in `DAY_FILES` at
-the top of `bicing.js` (index 0 = Monday … 6 = Sunday).
+The weekday files currently in the repository predate this pipeline (about
+3 months processed with an earlier script that still counted bikes at closed
+stations). The first `update` with 3 months of data replaces them.
+
+### How the numbers are calculated
+
+`scripts/bicing_data.py` turns 5-minute snapshots into 15-minute probabilities:
+
+1. Each snapshot's time is rounded to the nearest 5 minutes (the feed has a
+   few seconds of jitter), keeping one snapshot per station and time. Every
+   day then contributes exactly 3 snapshots to a window.
+2. The window comes from the local clock time in Barcelona, so
+   daylight-saving changes are handled.
+3. A snapshot counts as "≥K bikes" only if the station is renting, and as
+   "≥K docks" only if it accepts returns: a closed station counts as
+   unavailable, because someone arriving there couldn't use it. "Any bike" =
+   classic + e-bike. Stations that are only planned are left out.
+4. Probability = share of snapshots in the window that meet the threshold
+   (the chance at a random moment in that window). `n` = days with data.
+
+Each month is first reduced to a small summary of **counts** in
+`data/monthly/` (about 3 MB instead of 20 MB). Counts can be added, so the
+dashboard is built from the latest months by summing them. The raw monthly
+archives are not stored in the repository.
 
 ### Updating the data
 
-Export each weekday from pandas in the original row format, drop the files into
-`data/` with the names above, then compact them:
+The dashboard always shows the **latest 3 complete months**. The portal only
+publishes a month after it has ended, so "the newest 3 published months" are
+always complete; if a month was never published, the window reaches one month
+further back.
+
+One command brings everything up to date:
 
 ```bash
-python3 scripts/compact_data.py data/availability_*.json
+pip install -r scripts/requirements.txt
+python3 scripts/bicing_data.py update            # --dry-run to only see the plan
 ```
 
-This shrinks each file from about 20 MB to about 4 MB without changing any
-value (the script refuses to write if a value would be rounded). The app also
-still reads the original format directly, it is just slower to load.
+It asks the portal's catalogue which months exist, processes whatever is
+missing (or was republished) among the latest 3, refreshes `stations.json`
+from the newest station-information file, and rebuilds the weekday files and
+`data/meta.json`. It does nothing when everything is current, and if a month
+can't be obtained it leaves the data untouched. `data/monthly/index.json`
+records which portal file and version each month came from.
 
-Original (pandas) format, a flat array of rows, one per station × window:
+**It must run on your own computer:** the portal refuses downloads from cloud
+servers (including GitHub Actions), with or without an access token. Files
+already in `~/Downloads` (e.g. downloaded in a browser) are used as-is.
 
-```json
-{
-  "station_id": 1,
-  "time_window": "08:15",
-  "n": 39,
-  "t1": { "any": 1.0, "ebike": 0.9, "mechanical": 1.0, "dock": 1.0 },
-  "t2": { "any": 1.0, "ebike": 0.7, "mechanical": 1.0, "dock": 1.0 },
-  "t3": { "...": "..." }, "t4": { "...": "..." }, "t5": { "...": "..." }
-}
+Lower-level steps, if needed:
+
+```bash
+python3 scripts/bicing_data.py summarize ~/Downloads/2026_10_Octubre_BicingNou_ESTACIONS.7z
+python3 scripts/bicing_data.py build --months 3
 ```
 
-- `time_window` — `"HH:MM"`, 15-min bins (`00:00` … `23:45`, 96 per day)
-- `n` — sample size (observed days behind the estimate)
-- `t1`…`t5` — threshold K = "at least K". Maps to the UI as:
-  - `any` → Pick up · **All**
-  - `ebike` → Pick up · **E-bike**
-  - `mechanical` → Pick up · **Classic**
-  - `dock` → **Drop off** (free docks)
+### Automatic weekly update (macOS)
 
-Compact format (written by the script): the same values as plain arrays, with
-probabilities as whole percentages:
+```bash
+scripts/macos/install_schedule.sh
+```
+
+This creates a Python environment in `.venv/` and a launchd job that runs
+`scripts/macos/weekly_update.sh` every Monday at 10:00 (or when the Mac next
+wakes up). Each run works in its own checkout (`.update-worktree/`), so it
+never touches what you have open, then:
+
+1. runs `update` on the latest `main`
+2. if the data changed, commits it to a branch `data-update/<months>`, pushes
+   it and opens a pull request (with the GitHub CLI `gh` if installed;
+   otherwise it opens GitHub's "create pull request" page)
+3. shows a macOS notification. Log: `~/Library/Logs/bicing-dashboard-update.log`
+
+It never opens a second pull request for the same months. Run it by hand with
+`scripts/macos/weekly_update.sh`, trigger the scheduled job with
+`launchctl kickstart gui/$(id -u)/com.bicing-dashboard.weekly-update`, and
+remove it with `scripts/macos/install_schedule.sh --uninstall`. Keep the
+repository outside Desktop/Documents/Downloads: macOS privacy protection can
+block background jobs there.
+
+As a safety net, the GitHub workflow **Data update reminder** checks the
+catalogue every Wednesday and opens an issue if a month published over a week
+ago still isn't in the data.
+
+### Data file format
+
+Each `availability_*.json`:
 
 ```json
 { "format": 2, "fields": ["any", "ebike", "mechanical", "dock"], "thresholds": 5,
-  "rows": [[1, 33, 39, 100, 90, 100, 100, 100, 70, 100, 100, "…t5"]] }
+  "rows": [[1, 33, 13, 100, 90, 100, 100, 100, 70, 100, 100, "…"]] }
 ```
 
-Each row is `[station_id, interval (0–95), n, t1.any, t1.ebike,
-t1.mechanical, t1.dock, t2.any, …, t5.dock]`.
-
-Rows for missing (station, window) combinations may be omitted; those cells show
-as "no data".
+Each row is `[station_id, interval (0–95 = 00:00–23:45), n (days), t1.any,
+t1.ebike, t1.mechanical, t1.dock, t2.any, …, t5.dock]`, probabilities as whole
+percentages. Missing (station, window) combinations are omitted and show as
+"no data". If a weekday file is missing, that day's stations render grey and a
+note says which file to add; there is no fallback to another day. The loader
+also still accepts the older pandas row-object format.
 
 ## Optional: gzip (.json.gz)
 
