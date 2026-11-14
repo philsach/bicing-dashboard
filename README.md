@@ -44,14 +44,18 @@ app.js          compiled from app.jsx by `npm run build` (what the page loads)
 bicing.js       DATA LAYER (code) — the only place that knows the data format
 package.json    build script (esbuild)
 scripts/
-  bicing_data.py             data pipeline: monthly source files → dashboard data
+  bicing_data.py             data pipeline: update / summarize / build
   requirements.txt           Python packages for the pipeline
+  macos/                     weekly automatic update on a Mac (launchd)
+.github/workflows/
+  data-reminder.yml          weekly check: opens an issue if a new month is missing
 data/
   stations.json              546 stations: id, name, lat/lon, capacity
   availability_mon.json … availability_sun.json
                              one file per weekday, loaded when that day is shown
   meta.json                  which months the numbers cover (shown in the header)
   monthly/YYYY_MM.csv.gz     per-month count summaries the weekday files are built from
+  monthly/index.json         which portal file/version each summary came from
 ```
 
 ## Data
@@ -66,6 +70,10 @@ finding at least 1–5 bikes (any / e-bike / classic) or free docks, plus `n`,
 the number of days behind the estimate. Cells based on fewer than 4 days are
 shown faded on the map (`LOW_N` in `bicing.js`), and the station panel says
 how many days each number is based on.
+
+The weekday files currently in the repository predate this pipeline (about
+3 months processed with an earlier script that still counted bikes at closed
+stations). The first `update` with 3 months of data replaces them.
 
 ### How the numbers are calculated
 
@@ -90,23 +98,63 @@ archives are not stored in the repository.
 
 ### Updating the data
 
+The dashboard always shows the **latest 3 complete months**. The portal only
+publishes a month after it has ended, so "the newest 3 published months" are
+always complete; if a month was never published, the window reaches one month
+further back.
+
+One command brings everything up to date:
+
 ```bash
 pip install -r scripts/requirements.txt
+python3 scripts/bicing_data.py update            # --dry-run to only see the plan
+```
+
+It asks the portal's catalogue which months exist, processes whatever is
+missing (or was republished) among the latest 3, refreshes `stations.json`
+from the newest station-information file, and rebuilds the weekday files and
+`data/meta.json`. It does nothing when everything is current, and if a month
+can't be obtained it leaves the data untouched. `data/monthly/index.json`
+records which portal file and version each month came from.
+
+**It must run on your own computer:** the portal refuses downloads from cloud
+servers (including GitHub Actions), with or without an access token. Files
+already in `~/Downloads` (e.g. downloaded in a browser) are used as-is.
+
+Lower-level steps, if needed:
+
+```bash
 python3 scripts/bicing_data.py summarize ~/Downloads/2026_10_Octubre_BicingNou_ESTACIONS.7z
 python3 scripts/bicing_data.py build --months 3
 ```
 
-`summarize` accepts the `.7z` or the `.csv` inside it, and several files at
-once. `build` combines the latest 3 monthly summaries (change with
-`--months`) into the weekday files and `data/meta.json`.
+### Automatic weekly update (macOS)
 
-The monthly archives must be downloaded in a browser: the portal refuses
-downloads from cloud servers (including GitHub Actions), with or without an
-access token. Its catalogue API still works from anywhere.
+```bash
+scripts/macos/install_schedule.sh
+```
 
-The weekday files currently in the repository predate this pipeline (about
-3 months processed with an earlier script that still counted bikes at closed
-stations). They will be replaced on the first `build` with 3 months of data.
+This creates a Python environment in `.venv/` and a launchd job that runs
+`scripts/macos/weekly_update.sh` every Monday at 10:00 (or when the Mac next
+wakes up). Each run works in its own checkout (`.update-worktree/`), so it
+never touches what you have open, then:
+
+1. runs `update` on the latest `main`
+2. if the data changed, commits it to a branch `data-update/<months>`, pushes
+   it and opens a pull request (with the GitHub CLI `gh` if installed;
+   otherwise it opens GitHub's "create pull request" page)
+3. shows a macOS notification. Log: `~/Library/Logs/bicing-dashboard-update.log`
+
+It never opens a second pull request for the same months. Run it by hand with
+`scripts/macos/weekly_update.sh`, trigger the scheduled job with
+`launchctl kickstart gui/$(id -u)/com.bicing-dashboard.weekly-update`, and
+remove it with `scripts/macos/install_schedule.sh --uninstall`. Keep the
+repository outside Desktop/Documents/Downloads: macOS privacy protection can
+block background jobs there.
+
+As a safety net, the GitHub workflow **Data update reminder** checks the
+catalogue every Wednesday and opens an issue if a month published over a week
+ago still isn't in the data.
 
 ### Data file format
 
