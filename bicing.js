@@ -14,7 +14,7 @@
  *  only loads the day in view:
  *      data/availability_mon.json … availability_sun.json
  *
- *    Compact format (what's in the repo; made by scripts/compact_data.py):
+ *    Compact format (what's in the repo; made by scripts/bicing_data.py):
  *      { "format": 2, "fields": ["any","ebike","mechanical","dock"],
  *        "thresholds": 5,
  *        "rows": [[station_id, interval, n,
@@ -25,7 +25,8 @@
  *      { "station_id": 1, "time_window": "08:15", "n": 39,
  *        "t1": { "any": .., "ebike": .., "mechanical": .., "dock": .. }, … }
  *
- *    • n  = sample size (number of observed days behind the estimate)
+ *    • n  = number of days with data in that window (each day contributes
+ *           three 5-minute snapshots; see scripts/bicing_data.py)
  *    • tK = threshold K (1..5):  P(at least K …)
  *        - any        P(≥K bikes of any kind)        ← pickup, "All"
  *        - ebike      P(≥K e-bikes)                  ← pickup, "E-bike"
@@ -45,7 +46,7 @@
   const INTERVALS = (24 * 60) / INTERVAL_MIN;    // 96 bins
   const DOW = 7;                                 // Mon..Sun
   const N_MIN = 1, N_MAX = 5;                    // threshold slider range (t1..t5)
-  const LOW_N = 10;                              // fewer observed days than this = "limited data"
+  const LOW_N = 4;                               // fewer observed days than this = "limited data"
   const FIELDS = ['any', 'ebike', 'mechanical', 'dock'];
 
   const DAY_FILES = [
@@ -88,6 +89,27 @@
       if (i > 0 && NAME_LOWERS.has(w.replace(/[.'\u2019]/g, ''))) return w;
       return w.replace(/[a-z\u00e0-\u00ff]/i, (c) => c.toUpperCase());
     }).join(' ');
+  }
+
+  // ---- dataset metadata (data/meta.json): which months the numbers cover ----
+  const META = { months: null };
+  async function loadMeta() {
+    try {
+      const res = await fetch('data/meta.json');
+      if (res.ok) Object.assign(META, await res.json());
+    } catch (e) { /* optional: the app works without it */ }
+    return META;
+  }
+
+  // "Aug – Oct 2026" from ["2026-08", "2026-09", "2026-10"]; null when unknown.
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function periodLabel() {
+    const m = META.months;
+    if (!Array.isArray(m) || !m.length) return null;
+    const fmt = (ym, withYear) => { const [y, mo] = ym.split('-'); return MONTHS[+mo - 1] + (withYear ? ' ' + y : ''); };
+    const a = m[0], b = m[m.length - 1];
+    if (a === b) return fmt(a, true);
+    return fmt(a, a.slice(0, 4) !== b.slice(0, 4)) + ' \u2013 ' + fmt(b, true);
   }
 
   async function loadStations(url) {
@@ -228,7 +250,7 @@
   window.BICING = {
     STATIONS, CENTER,
     INTERVAL_MIN, INTERVALS, DOW, N_MIN, N_MAX, LOW_N,
-    rampColor, loadStations,
+    rampColor, loadStations, loadMeta, periodLabel, META,
     loadAvailability, isDayReady, dayState,
     getProb, getSample, hourlySeries,
   };

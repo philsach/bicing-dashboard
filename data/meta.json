@@ -1,0 +1,7 @@
+{
+  "months": null,
+  "generated": "2026-06-02",
+  "source": "Barcelona Open Data, dataset estat-estacions-bicing (CC BY 4.0)",
+  "n": "days with data in the window (converted from snapshot counts: snapshots / 3)",
+  "method": "legacy: about 3 months processed with an earlier script that counted closed stations' bikes; rebuild with scripts/bicing_data.py"
+}

@@ -264,7 +264,7 @@ function App() {
           <button className="sheet-handle" onClick={() => setSheetOpen((v) => !v)}>
             <div>
               <h1>Bicing Availability</h1>
-              <p>Barcelona &middot; historical patterns</p>
+              <p>Barcelona &middot; {B.periodLabel() ? `${B.periodLabel()} data` : 'historical patterns'}</p>
             </div>
             <span className="sh-sub">{sheetOpen ? 'Hide \u25be' : `${DAYS[day]} ${fmtTime(interval)} \u25b4`}</span>
           </button>
@@ -328,6 +328,7 @@ const root = ReactDOM.createRoot(document.getElementById('root'));
 const BOOT_DOW = ((new Date().getDay()) + 6) % 7; // Mon=0..Sun=6
 Promise.all([
   B.loadStations(),
+  B.loadMeta(),
   B.loadAvailability(BOOT_DOW).catch((err) => console.error('Failed to load availability:', err)),
 ])
   .catch((err) => console.error('Failed to load stations:', err))
